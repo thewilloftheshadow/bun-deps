@@ -1,32 +1,5 @@
 #!/usr/bin/env bun
 
-interface LockfilePackage {
-	0: string
-	1: string
-	2: {
-		dependencies?: Record<string, string>
-		devDependencies?: Record<string, string>
-		peerDependencies?: Record<string, string>
-		optionalDependencies?: Record<string, string>
-		bin?: string | Record<string, string>
-		os?: string | string[]
-		cpu?: string | string[]
-	}
-	3: string
-}
-
-interface Lockfile {
-	lockfileVersion: number
-	workspaces?: {
-		[key: string]: {
-			name: string
-			dependencies: Record<string, string>
-			devDependencies?: Record<string, string>
-		}
-	}
-	packages: Record<string, LockfilePackage>
-}
-
 const findRootDir = async (): Promise<string> => {
 	let currentDir = process.cwd()
 	
@@ -52,7 +25,7 @@ const findRootDir = async (): Promise<string> => {
 	}
 }
 
-const readLockfile = async (): Promise<Lockfile> => {
+const readLockfile = async (): Promise<Bun.BunLockFile> => {
 	try {
 		const rootDir = await findRootDir()
 		const content = await Bun.file(`${rootDir}/bun.lock`).text()
@@ -66,7 +39,7 @@ const readLockfile = async (): Promise<Lockfile> => {
 }
 
 const findDependencySource = (
-	lockfile: Lockfile,
+	lockfile: Bun.BunLockFile,
 	targetDep: string
 ): { workspace: string; type: "prod" | "dev" }[] => {
 	const sources: { workspace: string; type: "prod" | "dev" }[] = []
@@ -84,7 +57,7 @@ const findDependencySource = (
 }
 
 const findTransitiveDependencies = (
-	lockfile: Lockfile,
+	lockfile: Bun.BunLockFile,
 	pkgName: string,
 	visited = new Set<string>()
 ): { name: string; version: string; through: string[] }[] => {
@@ -93,18 +66,21 @@ const findTransitiveDependencies = (
 	visited.add(pkgName)
 	for (const [name, pkg] of Object.entries(lockfile.packages)) {
 		if (!pkg || !Array.isArray(pkg) || pkg.length < 3) continue
-		const deps = pkg[2]?.dependencies || {}
-		if (deps[pkgName]) {
-			const version = pkg[0].split("@").pop() || "unknown"
-			results.push({
-				name,
-				version,
-				through: []
-			})
-			const transitive = findTransitiveDependencies(lockfile, name, visited)
-			for (const dep of transitive) {
-				dep.through = [name, ...dep.through]
-				results.push(dep)
+		const meta = pkg[2]
+		if (typeof meta === 'object' && meta !== null && 'dependencies' in meta) {
+			const deps = meta.dependencies || {}
+			if (deps[pkgName]) {
+				const version = pkg[0].split("@").pop() || "unknown"
+				results.push({
+					name,
+					version,
+					through: []
+				})
+				const transitive = findTransitiveDependencies(lockfile, name, visited)
+				for (const dep of transitive) {
+					dep.through = [name, ...dep.through]
+					results.push(dep)
+				}
 			}
 		}
 	}
@@ -125,7 +101,7 @@ const getCurrentPackageName = async () => {
 	}
 }
 
-const listDependencies = async (lockfile: Lockfile, recursive = false) => {
+const listDependencies = async (lockfile: Bun.BunLockFile, recursive = false) => {
 	const currentPackage = await getCurrentPackageName()
 	const workspaces = lockfile.workspaces || { "": { name: "", dependencies: {}, devDependencies: {} } }
 	
@@ -154,7 +130,7 @@ const listDependencies = async (lockfile: Lockfile, recursive = false) => {
 	}
 }
 
-const whyDependency = async (lockfile: Lockfile, targetDep: string) => {
+const whyDependency = async (lockfile: Bun.BunLockFile, targetDep: string) => {
 	const directSources = findDependencySource(lockfile, targetDep)
 	const transitiveSources = findTransitiveDependencies(lockfile, targetDep)
 	if (directSources.length === 0 && transitiveSources.length === 0) {
@@ -194,7 +170,7 @@ interface AuditTree {
 	dependencies: Record<string, AuditNode>
 }
 
-const lockfileToAuditTree = (lockfile: Lockfile): AuditTree => {
+const lockfileToAuditTree = (lockfile: Bun.BunLockFile): AuditTree => {
 	const workspaces = lockfile.workspaces || { "": { name: "", dependencies: {}, devDependencies: {} } }
 	const rootWorkspace = workspaces[""] || Object.values(workspaces)[0]
 	
@@ -232,11 +208,11 @@ const lockfileToAuditTree = (lockfile: Lockfile): AuditTree => {
 
 		// Add dependencies of this package
 		const meta = pkg[2]
-		if (meta.dependencies) {
+		if (typeof meta === 'object' && meta !== null && 'dependencies' in meta) {
 			if (!dependencies[pkgName].dependencies) {
 				dependencies[pkgName].dependencies = {}
 			}
-			for (const [depName, depVersion] of Object.entries(meta.dependencies)) {
+			for (const [depName, depVersion] of Object.entries(meta.dependencies || {})) {
 				if (dependencies[pkgName].dependencies) {
 					dependencies[pkgName].dependencies[depName] = {
 						version: typeof depVersion === 'string' ? depVersion : '*'

@@ -1,6 +1,6 @@
 {
 	"name": "bun-deps",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "A CLI tool to help you view and manage your dependencies in a Bun repository.",
 	"module": "index.ts",
 	"type": "module",
