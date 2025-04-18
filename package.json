@@ -4,6 +4,13 @@
 	"description": "A CLI tool to help you view and manage your dependencies in a Bun repository.",
 	"module": "index.ts",
 	"type": "module",
+	"files": [
+		"index.ts",
+		"bun.lock",
+		"package.json",
+		"README.md",
+		"LICENSE"
+	],
 	"bin": {
 		"bun-deps": "./index.ts"
 	},
